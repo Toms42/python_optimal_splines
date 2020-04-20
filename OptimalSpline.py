@@ -3,8 +3,8 @@ from math import factorial
 
 class OptimalSpline:
     def __init__(self, coefficients, ts):
-        assert (len(ts) == coefficients.shape[1] + 1)
         assert (isinstance(coefficients, np.ndarray))
+        assert (len(ts) == coefficients.shape[1] + 1)
         self.coefficients = coefficients
         self.order = coefficients.shape[0] - 1
         self.num_segments = coefficients.shape[1]
@@ -31,6 +31,9 @@ class OptimalSpline:
         for i in range(r, self.order + 1):
             res += coeffs[(self.order - i)] * factorial(i) / factorial(i - r) * T**(i-r)
         return res
+
+    def _get_coeff_vector(self):
+        return np.fliplr(self.coefficients.transpose()).ravel()
 
     def __getitem__(self, t):
         return self.val(0, t)

@@ -36,7 +36,12 @@ class TestOptimalSplineGen(unittest.TestCase):
         wp4 = OptimalSplineGen.Waypoint(4)
         wp4.add_soft_constraint(0, 3, 0.2)
 
-        s = OptimalSplineGen.compute_min_derivative_spline(5, 3, 2, [wp1, wp2, wp3, wp4])
+        wp5 = OptimalSplineGen.Waypoint(7)
+        wp5.add_soft_constraint(0, 3, 0.2)
+        wp6 = OptimalSplineGen.Waypoint(8)
+        wp6.add_soft_constraint(0, 3, 0.2)
+
+        s = OptimalSplineGen.compute_min_derivative_spline(5, 3, 2, [wp1, wp2, wp3, wp4, wp5, wp6])
         self.assertAlmostEqual(s.val(0, 2), 4, places=2)
         self.assertAlmostEqual(s.val(1, 2), 2.5, places=2)
         self.assertAlmostEqual(s.val(0, 3), 2, places=2)

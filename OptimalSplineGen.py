@@ -27,6 +27,8 @@ def compute_min_derivative_spline(order, min_derivative_order, continuity_order,
     if num_segments < 2:
         return None
 
+    assert not any([wp.time is None for wp in waypoints])
+
     waypoints.sort(key=lambda waypoint: waypoint.time)
 
     durations = [0] * num_segments

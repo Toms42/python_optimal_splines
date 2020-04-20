@@ -45,6 +45,17 @@ class SplineTest(unittest.TestCase):
         self.assertEqual(s.val(3, 0.5), -6)
         self.assertEqual(s.val(3, 2.5), -6)
 
+    def test_coefficients(self):
+        num_segments = 4
+        order = 5
+        ts = [0, 1, 3, 4, 5]
+
+        coefficients = np.random.rand(num_segments * (order+1))
+        c = np.fliplr(coefficients.reshape((num_segments, order+1)))
+        s = OptimalSpline(c.transpose(), ts)
+        self.assertTrue((s._get_coeff_vector() == coefficients).all())
+
+
 
 if __name__ == '__main__':
     unittest.main()
