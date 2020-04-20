@@ -61,7 +61,7 @@ class TestOptimalSplineGen(unittest.TestCase):
         tw2 = TrajectoryWaypoint((2, 0, 4))
         tw3 = TrajectoryWaypoint((2, 4, 3))
         tw4 = TrajectoryWaypoint((4, 4, 5))
-        tw5 = TrajectoryWaypoint((6, 2, 4))
+        tw5 = TrajectoryWaypoint((40, 23, 24))
         tw6 = TrajectoryWaypoint((4, 2, 5))
         tw7 = TrajectoryWaypoint((2, 6, 3))
         tw7.add_hard_constraints(1, (0, 0, 0))

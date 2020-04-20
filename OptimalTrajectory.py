@@ -8,6 +8,7 @@ from math import factorial
 
 class TrajectoryWaypoint:
     def __init__(self, ndim):
+        self.time = None
         if isinstance(ndim, int):
             self.ndim = ndim
             self.spline_pins = [Waypoint(None) for i in range(self.ndim)]
@@ -33,6 +34,7 @@ class TrajectoryWaypoint:
         self.spline_pins[dim].add_soft_constraint(order, value, radius)
 
     def set_time(self, t):
+        self.time = t
         for sp in self.spline_pins:
             sp.time = t
 
@@ -60,13 +62,14 @@ class OptimalTrajectory:
             np.ones(self.num_segs),
             bounds=[(minperseg, np.inf) for i in range(self.num_segs)],
             options={'disp': False})
-        # print(res)
+        print(res)
         x = res.x
         ts = np.hstack((np.array([0]), np.cumsum(x)))
         for i, wp in enumerate(self.waypoints):
             wp.set_time(ts[i])
 
         self.splines = self._gen_splines()
+        solved = True
 
     def val(self, t, dim=None, order=0):
         if not self.solved:
@@ -76,6 +79,9 @@ class OptimalTrajectory:
             return [s.val(order, t) for s in self.splines]
 
         return self.splines[dim].val(order, t)
+
+    def end_time(self):
+        return self.waypoints[-1].time
 
     def _cost_fn(self, x):
         # return sum([max(x, 0) for x in x]) + self._nl_constraints_fn(x).transpose() @ self.derivative_weights @ self._nl_constraints_fn(x)
