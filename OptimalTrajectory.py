@@ -3,40 +3,9 @@ import OptimalSplineGen
 import numpy as np
 import itertools
 import scipy.optimize
-from math import factorial
-
-
-class TrajectoryWaypoint:
-    def __init__(self, ndim):
-        self.time = None
-        if isinstance(ndim, int):
-            self.ndim = ndim
-            self.spline_pins = [Waypoint(None) for i in range(self.ndim)]
-        elif isinstance(ndim, tuple):
-            self.ndim = len(ndim)
-            self.spline_pins = [Waypoint(None) for i in range(self.ndim)]
-            self.add_hard_constraints(0, ndim)
-
-    def add_hard_constraints(self, order, values):
-        assert len(values) == self.ndim
-        for i, v in enumerate(values):
-            self.spline_pins[i].add_hard_constraint(order, v)
-
-    def add_soft_constraints(self, order, values, radii):
-        assert len(values) == self.ndim
-        for i, v in enumerate(values):
-            self.spline_pins[i].add_hard_constraint(order, v, radii[i])
-
-    def add_hard_constraint(self, order, dim, value):
-        self.spline_pins[dim].add_hard_constraint(order, value)
-
-    def add_soft_constraint(self, order, dim, value, radius):
-        self.spline_pins[dim].add_soft_constraint(order, value, radius)
-
-    def set_time(self, t):
-        self.time = t
-        for sp in self.spline_pins:
-            sp.time = t
+from math import factorial, sqrt
+from TrajectoryWaypoint import TrajectoryWaypoint
+import OptimalMultiSplineGen
 
 
 class OptimalTrajectory:
@@ -50,29 +19,46 @@ class OptimalTrajectory:
         self.continuity_order = continuity_order
         self.num_segs = len(waypoints) - 1
         self.constraint_check_dt = constraint_check_dt
+        self.has_multispline_constraints = False
         assert self.num_segs >= 1
 
-    def solve(self, aggressiveness=0.1, time_opt_order=2):
+        for wp in waypoints:
+            if len(wp.soft_directional_constraints) > 0:
+                self.has_multispline_constraints = True
+                break
+
+    def solve(self, aggressiveness=0.1, time_opt_order=1, use_faster_ts=True):
+        self.use_faster_ts = use_faster_ts
         self._aggro = aggressiveness
         self._time_opt_order = time_opt_order
 
-        minperseg = 50.0/1000
+        minperseg = 50.0 / 1000
+        maxperseg = 500.0  # TODO: this should NOT be necessary!
+
+        if self.use_faster_ts:
+            x0 = np.ones(1)*100
+            bounds = [(50.0/1000, 1000)]
+        else:
+            x0 = np.ones(self.num_segs)*10
+            bounds = [(minperseg, maxperseg) for i in range(self.num_segs)]
+
         res = scipy.optimize.minimize(
             self._cost_fn,
-            np.ones(self.num_segs),
-            bounds=[(minperseg, np.inf) for i in range(self.num_segs)],
-            options={'disp': False})
-        print(res)
+            x0,
+            bounds=bounds,
+            options={'disp': True})
         x = res.x
-        ts = np.hstack((np.array([0]), np.cumsum(x)))
+        ts = self._arrange_ts(x)
+        print("Ts: {}".format(ts))
         for i, wp in enumerate(self.waypoints):
             wp.set_time(ts[i])
 
         self.splines = self._gen_splines()
-        solved = True
+        self.solved = True
 
     def val(self, t, dim=None, order=0):
         if not self.solved:
+            print("TRAJECTORY NOT SOLVED!!")
             return None
 
         if dim is None:
@@ -83,37 +69,56 @@ class OptimalTrajectory:
     def end_time(self):
         return self.waypoints[-1].time
 
+    def _arrange_ts(self, x):
+        if self.use_faster_ts:
+            dists = [None] * (len(self.waypoints) - 1)
+            for i, wp in enumerate(self.waypoints[0:-1]):
+                # Get position:
+                pos = np.array(list(wp.get_pos()))
+                next_pos = np.array(list(self.waypoints[i+1].get_pos()))
+                dists[i] = sqrt(np.dot((next_pos - pos), (next_pos - pos)))
+            v = sum(dists) / x[0]
+            return np.hstack((np.array([0]), np.cumsum([float(d)/v for d in dists])))
+        else:
+            return np.hstack((np.array([0]), np.cumsum(x)))
+
     def _cost_fn(self, x):
-        # return sum([max(x, 0) for x in x]) + self._nl_constraints_fn(x).transpose() @ self.derivative_weights @ self._nl_constraints_fn(x)
-        return self._aggro * sum(x) + self._compute_avg_cost_per_dim(x)
+        return self._aggro * sum(x)**2 + self._compute_avg_cost_per_dim(x)**2
 
     def _compute_avg_cost_per_dim(self, x):
-        ts = np.hstack((np.array([0]), np.cumsum(x)))
+        ts = self._arrange_ts(x)
         for i, wp in enumerate(self.waypoints):
             wp.set_time(ts[i])
 
+        if ts[-1] > 10000:
+            print ("bad optimizer!")
+            return 10000
+
         splines = self._gen_splines()
+        if splines is None:
+            print("no splines!")
+            return 10000
 
         order = self.order
         num_segments = self.num_segs
 
         cw = order + 1  # constraint width
-        x_dim = cw * (num_segments)  # num columns in the constraint matrix
+        x_dim = cw * num_segments  # num columns in the constraint matrix
 
         # Construct Hermitian matrix:
         H = np.zeros((x_dim, x_dim))
         for seg in range(0, num_segments):
-            Q = self._compute_Q(order, self._time_opt_order, 0, x[seg])
+            Q = self._compute_Q(order, self._time_opt_order, 0, ts[seg+1] - ts[seg]) # x[seg])
             H[cw * seg:cw * (seg + 1), cw * seg:cw * (seg + 1)] = Q
 
         res = 0
         for spline in splines:
             try:
                 c = spline._get_coeff_vector()
-                res += c @ H @ c.transpose()
+                res += c.dot(H.dot(c.transpose()))
             except:
-                print('fuck')
-                res += 10000
+                print('broken splines!')
+                return 10000
         return res / self.ndims / ts[-1]
 
     def _compute_Q(self, order, min_derivative_order, t1, t2):
@@ -147,12 +152,19 @@ class OptimalTrajectory:
         return factorial(p) / factorial(d)
 
     def _gen_splines(self):
-        splines = [None] * self.ndims
-        for i in range(self.ndims):
-            pins = [wp.spline_pins[i] for wp in self.waypoints]
-            splines[i] = OptimalSplineGen.compute_min_derivative_spline(self.order,
-                                                                        self.min_derivative_order,
-                                                                        self.continuity_order,
-                                                                        pins)
-        return splines
-
+        if self.has_multispline_constraints:
+            return OptimalMultiSplineGen.compute_min_derivative_multispline(self.order,
+                                                                            self.min_derivative_order,
+                                                                            self.continuity_order,
+                                                                            self.waypoints)
+        else:
+            splines = [None] * self.ndims
+            for i in range(self.ndims):
+                pins = [wp.spline_pins[i] for wp in self.waypoints]
+                splines[i] = OptimalSplineGen.compute_min_derivative_spline(self.order,
+                                                                            self.min_derivative_order,
+                                                                            self.continuity_order,
+                                                                            pins)
+                if splines[i] is None:
+                    self.splines = None
+            return splines
